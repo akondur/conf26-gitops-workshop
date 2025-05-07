@@ -31,8 +31,4 @@ jobs:
 
     - name: Ping Internal server
       run: |   
-        ping -c 10 10.202.7.209
-
-    
-          
-    #- name: Install the package on dev environments
+        ping -c 10 54.202.3.157
