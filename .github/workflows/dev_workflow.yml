@@ -32,6 +32,6 @@ jobs:
     - name: SSH into internal server
       run: |
         chmod 400 auth/ec2_vm.pem
-        ssh -i auth/ec2_vm.pem ec2-user@ec2-34-214-114-155.us-west-2.compute.amazonaws.com -v
+        ssh -oStrictHostKeyChecking=no -i auth/ec2_vm.pem ec2-user@ec2-34-214-114-155.us-west-2.compute.amazonaws.com -v
         sudo su
         ls -ltr
