@@ -1,0 +1,38 @@
+name: Development workflow
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    environment: Classic
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Build package
+      run: |
+        chmod +x scripts/build_package.sh
+        scripts/build_package.sh example_app
+
+    - name: Ping Internal server
+      run: |   
+        ping $SPLUNK_VM_SERVER
+
+    
+          
+    #- name: Install the package on dev environments
