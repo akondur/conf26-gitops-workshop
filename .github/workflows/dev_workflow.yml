@@ -31,7 +31,7 @@ jobs:
 
     - name: Ping Internal server
       run: |   
-        ping $SPLUNK_VM_SERVER
+        ping 10.202.7.209
 
     
           
