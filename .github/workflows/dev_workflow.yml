@@ -29,6 +29,8 @@ jobs:
         chmod +x scripts/build_package.sh
         scripts/build_package.sh example_app
 
-    - name: Ping Internal server
-      run: |   
-        ping -c 10 54.202.3.157
+    - name: SSH into internal server
+      run: |
+        ssh -i auth/ec2_vm.pem ec2-user@ec2-34-214-114-155.us-west-2.compute.amazonaws.com -v
+        sudo su
+        ls -ltr
