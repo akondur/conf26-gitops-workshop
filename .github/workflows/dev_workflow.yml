@@ -31,7 +31,7 @@ jobs:
 
     - name: Ping Internal server
       run: |   
-        ping 10.202.7.209
+        ping -c 10 10.202.7.209
 
     
           
