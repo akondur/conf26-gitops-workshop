@@ -1,0 +1,50 @@
+name: Validate Config
+
+on:
+  pull_request:
+    paths:
+      - 'conf/**.conf'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine changed .conf files
+        id: changed
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'conf/*.conf' > changed_files.txt
+          cat changed_files.txt
+
+      - name: Validate each changed conf file via btool REST endpoint
+        env:
+          STACK_NAME: ${{ secrets.STACK_NAME }}
+          SPLUNK_USER: ${{ secrets.SPLUNK_USER }}
+          SPLUNK_PASSWORD: ${{ secrets.SPLUNK_PASSWORD }}
+        run: |
+          status=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            confname=$(basename "$file" .conf)
+            echo "Validating $file as conf type '$confname'..."
+
+            http_code=$(curl -s -o response.json -w '%{http_code}' \
+              -u "${SPLUNK_USER}:${SPLUNK_PASSWORD}" \
+              -X POST \
+              "https://${STACK_NAME}:8089/services/properties/${confname}?validate=true" \
+              -H 'Content-Type: text/plain' \
+              --data-binary @"$file")
+
+            echo "HTTP status: $http_code"
+            cat response.json
+            echo
+
+            if [ "$http_code" != "200" ]; then
+              echo "::error file=$file::Validation failed for $file"
+              status=1
+            fi
+          done < changed_files.txt
+          exit $status

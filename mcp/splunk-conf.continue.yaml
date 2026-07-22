@@ -1,0 +1,14 @@
+name: Splunk Config MCP
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: Splunk Config MCP
+    command: npx
+    args:
+      - "-y"
+      - "mcp-remote"
+      - "https://<stack-name>:8089/services/mcp/v1/sse"
+      - "--header"
+      - "Authorization: Bearer <your-mcp-token>"
+    env:
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"

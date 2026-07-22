@@ -1,0 +1,28 @@
+name: Health Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Splunk Cloud server/info endpoint
+        env:
+          STACK_NAME: ${{ secrets.STACK_NAME }}
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+        run: |
+          curl -sf \
+            -H "Authorization: Bearer ${STACK_TOKEN}" \
+            "https://${STACK_NAME}:8089/services/server/info?output_mode=json" \
+            | tee server_info.json
+
+      - name: Print Splunk version
+        run: |
+          python3 -c "
+          import json
+          info = json.load(open('server_info.json'))
+          print('Splunk version:', info['entry'][0]['content']['version'])
+          "

@@ -1,0 +1,1500 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Splunk Configuration Management API",
+    "version": "1.0.0",
+    "description": "RESTful Configuration Management API for the Splunk platform.\n\nFor background on the Splunk configuration file system, see:\n- [About configuration files](https://help.splunk.com/?resourceId=Splunk_Admin_Aboutconfigurationfiles)\n- [Configuration file directories](https://help.splunk.com/?resourceId=Splunk_Admin_Configurationfiledirectories)\n- [Configuration file structure](https://help.splunk.com/?resourceId=Splunk_Admin_Configurationfilestructureandsyntax)\n\n# Read Operations\n\n| Endpoint                                                     | Description                          |\n|--------------------------------------------------------------|--------------------------------------|\n| `GET /configs/v1/conftypes`                                  | List available conf type names       |\n| `POST /configs/v1/conftypes/{confType}:get`                  | Read stanzas for a conf type         |\n| `GET /configs/v1/conftypes/{confType}/stanzas`               | List stanza names in a conf type     |\n| `POST /configs/v1/conftypes/{confType}/stanzas:get`          | Read a stanza with its settings      |\n| `POST /configs/v1/conftypes/{confType}/stanzas/settings:get` | Read a single setting from a stanza  |\n\n## Configuration Scoping\n\nThe configuration scope that the API caller applies for each API endpoint depends on two factors:\n- The REST path prefix \u2014 `/services` or `/servicesNS/{user}/{app}` \u2014 from\n  [the existing REST API](https://help.splunk.com/?resourceId=Platform_RESTREF_RESTprolog)\n- The `view` query parameter\n\n**Note:** `app-local` is the default view for read operations.\n\n### App-Scoped Views (view=app-local | app-default | app-merged)\n\nFor app-scoped views, the path prefix maps to a single folder on disk. The `view`\nparameter then selects which subdirectory (`local/`, `default/`, or both) the system\nreads within that folder.\n\n**`app-local`** \u2014 Reads only the `local/` subdirectory:\n\n| REST Path Prefix           | Reads from Filesystem path              |\n|----------------------------|-----------------------------------------|\n| `servicesNS/{user}/{app}/` | `etc/users/{user}/{app}/local`          |\n| `servicesNS/nobody/{app}/` | `etc/apps/{app}/local`                  |\n| `servicesNS/-/{app}/`      | `etc/apps/{app}/local`                  |\n| `servicesNS/{user}/-/`     | `etc/system/local`                      |\n| `servicesNS/-/-/`          | `etc/system/local`                      |\n| `/services/`               | `etc/system/local`                      |\n\n**`app-default`** \u2014 Reads the `default/` subdirectory only:\n\n| REST Path Prefix           | Reads from Filesystem path              |\n|----------------------------|-----------------------------------------|\n| `servicesNS/{user}/{app}/` | `etc/users/{user}/{app}/default`        |\n| `servicesNS/nobody/{app}/` | `etc/apps/{app}/default`                |\n| `servicesNS/-/{app}/`      | `etc/apps/{app}/default`                |\n| `servicesNS/{user}/-/`     | `etc/system/default`                    |\n| `servicesNS/-/-/`          | `etc/system/default`                    |\n| `/services/`               | `etc/system/default`                    |\n\n**`app-merged`** \u2014 Reads, merges both `local/` and `default/`, with `local/` values taking priority:\n\n| REST Path Prefix           | Reads from Filesystem path                                        |\n|----------------------------|-------------------------------------------------------------------|\n| `servicesNS/{user}/{app}/` | `etc/users/{user}/{app}/local` + `etc/users/{user}/{app}/default` |\n| `servicesNS/nobody/{app}/` | `etc/apps/{app}/local` + `etc/apps/{app}/default`                 |\n| `servicesNS/-/{app}/`      | `etc/apps/{app}/local` + `etc/apps/{app}/default`                 |\n| `servicesNS/{user}/-/`     | `etc/system/local` + `etc/system/default`                         |\n| `servicesNS/-/-/`          | `etc/system/local` + `etc/system/default`                         |\n| `/services/`               | `etc/system/local` + `etc/system/default`                         |\n\n### Materialized View (view=materialized)\n\nThe materialized view merges applicable configuration layers (`user`, `app`, `exported apps` and `system`)\nfollowing standard precedence rules and returns the fully resolved value.\n\nThe exact layering depends on the configuration context set by the REST prefix (`app/user` vs `global` context), see:\n[Configuration file precedence](https://help.splunk.com/?resourceId=Splunk_Admin_Wheretofindtheconfigurationfiles).\n\nPaths listed highest to lowest precedence:\n\n| REST Path Prefix           | Context    | Reads from (highest to lowest precedence based on context)                                                                                                                                                                                                                                            |\n|----------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|\n| `servicesNS/{user}/{app}/` | App / User | `etc/users/{user}/{app}/local` <br> `etc/users/{user}/{app}/default` <br> `etc/apps/{app}/local` <br> `etc/apps/{app}/default` <br> `etc/apps/*/local` (globally exported only) <br> `etc/apps/*/default` (globally exported only) <br> `etc/system/local` <br> `etc/system/default` |\n| `servicesNS/nobody/{app}/` | App / User | `etc/apps/{app}/local` <br> `etc/apps/{app}/default` <br> `etc/apps/*/local` (globally exported only) <br> `etc/apps/*/default` (globally exported only) <br> `etc/system/local` <br> `etc/system/default`                                                                          |\n| `servicesNS/-/{app}/`      | App / User | `etc/apps/{app}/local` <br> `etc/apps/{app}/default`                                                                                                                                                                                                                                 |\n| `servicesNS/{user}/-/`     | Global     | `etc/system/local` <br> `etc/apps/*/local` <br> `etc/apps/*/default` <br> `etc/system/default`                                                                                                                                                                                      |\n| `servicesNS/-/-/`          | Global     | `etc/system/local` <br> `etc/apps/*/local` <br> `etc/apps/*/default` <br> `etc/system/default`                                                                                                                                                                                      |\n| `/services/`               | Global     | `etc/system/local` <br> `etc/apps/*/local` <br> `etc/apps/*/default` <br> `etc/system/default`                                                                                                                                                                                      |\n\n## Filtering, Sorting, and Pagination\n\nThe following table provides the per-endpoint supportability matrix for filtering, pagination, and sorting.\n\n| Endpoint                                                     | Pagination | Sorting | Query Filter | Body NameFilter |\n|--------------------------------------------------------------|------------|---------|--------------|-----------------|\n| `GET /configs/v1/conftypes`                                  |   **Yes**  | **Yes** |    **Yes**   |     **No**      |\n| `POST /configs/v1/conftypes/{confType}:get`                  |   **Yes**  | **Yes** |    **No**    |     **Yes**     |\n| `GET /configs/v1/conftypes/{confType}/stanzas`               |   **Yes**  | **Yes** |    **No**    |     **No**      |\n| `POST /configs/v1/conftypes/{confType}/stanzas:get`          |   **Yes**  | **Yes** |    **No**    |     **Yes**     |\n| `POST /configs/v1/conftypes/{confType}/stanzas/settings:get` |   **No**   | **No**  |    **No**    |     **No**      |\n\n### Pagination\n\nStep through large result sets:\n- `count`  (integer): Maximum number of results to return per page. `0` or omitted\n  uses the default page size of 30. Maximum allowed value is 100,000.\n- `offset` (integer): Number of results to skip. Combine with `count` to page\n  through results. For example: `count=10&offset=0` returns page 1,\n  `count=10&offset=10` returns page 2, and so on.\n- **Default:** Returns up to 30 results starting from offset 0.\n\n### Sorting\n\nControl result order:\n- `sort_dir` (string): `asc` (ascending) or `desc` (descending).\n  Sorts alphabetically by entity name at each level (conf type name, stanza name,\n  or setting name). No support for custom sort fields.\n- **Default:** `asc`.\n\n### Filtering\n\n#### Query Parameter Filtering\nFilters the returned list of conf type names through URL query parameters.\n- `filter` (string): The pattern to match against conf type names.\n- `mode`   (string, default `exact`): `exact` for literal match; `regex` for\n  regular expression match. Regex mode matches any substring of the name.\n  Use `^` and `$` anchors for full-string matching.\n- **Default:** Does not filter queries; returns all conf types.\n\n#### Request Body Filtering\nFilters passed in the request body (`NameFilter`) to avoid URI length limits. When you supply multiple\nfilters, the method returns any result that matches at least one filter. Accepts\n`exact` for literal match and `regex` for regular expression match. Regex mode\nmatches any substring of the name. Use `^` and `$` anchors for full-string matching.\n\nFilters by the primary resource identifier:\n- Stanza name for conf type reads.\n- Setting name for stanza reads.\n- **Default:** Does not filter request body names; returns all results.\n\n# Write Operations\n\n| Endpoint                                                          | Description                            |\n| ----------------------------------------------------------------- | -------------------------------------- |\n| `POST /configs/v1/conftypes/{confType}/stanzas`                   | Create a new stanza                    |\n| `PUT /configs/v1/conftypes/{confType}/stanzas`                    | Replace stanza and all its settings    |\n| `PATCH /configs/v1/conftypes/{confType}/stanzas`                  | Merge settings into stanza             |\n| `POST /configs/v1/conftypes/{confType}/stanzas:delete`            | Delete an entire stanza                |\n| `POST /configs/v1/conftypes/{confType}/stanzas/settings`          | Create a new setting in a stanza       |\n| `PUT /configs/v1/conftypes/{confType}/stanzas/settings`           | Replace setting in a stanza            |\n| `POST /configs/v1/conftypes/{confType}/stanzas/settings:delete`   | Delete a setting from a stanza         |\n\nStanza- and setting-level write operations use collection-level endpoints with the resource name in the request body.\nThis avoids URI length limitations as Splunk configuration stanza/setting names can exceed 2 KB when URL-encoded.\n\n## Write Scope\n\nAll write operations target the `local/` directory only. The destination folder is determined\nby the REST path prefix:\n\n| REST Path Prefix           | Writes to Filesystem path               |\n|----------------------------|-----------------------------------------|\n| `servicesNS/{user}/{app}/` | `etc/users/{user}/{app}/local`          |\n| `servicesNS/nobody/{app}/` | `etc/apps/{app}/local`                  |\n| `servicesNS/-/{app}/`      | `etc/apps/{app}/local`                  |\n| `servicesNS/{user}/-/`     | `etc/system/local`                      |\n| `servicesNS/-/-/`          | `etc/system/local`                      |\n| `/services/`               | `etc/system/local`                      |\n\n## Atomicity Guarantees\n- Stanza level: ATOMIC \u2014 Method writes all settings in a stanza atomically (all writes either succeed or fail completely)\n- Setting level: ATOMIC \u2014 single setting written atomically\n\n## Default Stanza\n- Use `default` as the stanza name to address the default stanza.\n- Settings that appear before any stanza header in a conf file, or under\n  an explicit `[default]` header, are both accessed through the `default` name.\n- Not all conf files support a `default` stanza (for example, collections.conf,\n  tags.conf, app.conf). Write operations to those files return a 404 for `default`.\n- Flat conf files with no stanza concept (for example, source-classifier.conf,\n  splunk-launch.conf) expose all settings under the `default` stanza.\n\n## Write Semantics\n\nWrite operations that are not specifically for deleting content apply the following rules before writing to persistent storage in the `local/` subdirectory:\n\n- **Writes target `local/` only**: The system determines the \"local/\" destination using the REST path prefix.\n  See the \"Write Scope\" table earlier in this document for information on the mapping of REST path prefixes to filesystem destinations.\n- **Diff suppression**: To prevent redundant local overrides, the system does not\n  write settings changes to the `local/` directory in cases where the updated \n  setting value matches the present value for that setting.\n- **Empty value suppression**: The system does not write settings changes to\n  the `local/` directory in cases where there is no existing value for a setting\n  and the proposed updated value is an empty string.\n- **API semantics scoped to `local/`**: The system scopes all API semantics\n  (for example, the target resource, existence checks, HTTP status codes, and response\n  body) to reflect the `local/` layer only. The response returns the post-operation \n  state of `local/` for the affected stanza or setting.\n\n### Implementation Notes\n- The system writes all pertinent data to disk before sending the HTTP response\n- Changes might require a reload or restart, depending on the configuration\n\n## Deployment Scope\n\nWrite operations in this contract are designed for **non-clustered Splunk platform \ndeployments**. They operate against the local filesystem layer of the node that\nreceives the request directly and have no built-in awareness of cluster topology.\n\nIn environments with an existing replication mechanism, such as Search Head Cluster\nreplication, those mechanisms continue to apply changes independently. This API does\nnot interfere with or bypass them. Changes that callers make through this API are\nsubject to the same replication behavior as any direct write to `local/`.\n\nFor details on how configuration changes propagate in a Search Head Cluster, see:\n[How configuration changes propagate across the search head cluster](https://help.splunk.com/?resourceId=Splunk_DistSearch_HowconfigurationworksinSHC)\n"
+  },
+  "servers": [
+    {
+      "url": "https://{splunk_server}:8089",
+      "variables": {
+        "splunk_server": {
+          "default": "localhost"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Configuration Management",
+      "description": "Operations for managing Splunk configuration files, stanzas, and settings."
+    }
+  ],
+  "paths": {
+    "/configs/v1/conftypes": {
+      "get": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "listConfTypes",
+        "summary": "List configuration types",
+        "description": "Returns a list of available conf type names.\n**Output**: Array of conf type name strings (for example: [\"inputs\", \"props\"]).\n**Use Case**: Discover what conf types exist before fetching their content.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigView"
+          },
+          {
+            "$ref": "#/components/parameters/Count"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Filter"
+          },
+          {
+            "$ref": "#/components/parameters/FilterMode"
+          },
+          {
+            "$ref": "#/components/parameters/SortDir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of configuration type names.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfTypeListResponse"
+                },
+                "example": {
+                  "confTypes": [
+                    "inputs",
+                    "limits",
+                    "server",
+                    "transforms"
+                  ],
+                  "paging": {
+                    "total": 4,
+                    "perPage": 4,
+                    "offset": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}:get": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "getConfType",
+        "summary": "Get configuration type",
+        "description": "Read stanzas for a conf type with stanza name filtering,\npagination, and sorting. Stanza name filters are passed in the\nrequest body to avoid URI length limitations and metacharacter\ncollisions, as stanza names can contain literal `*`, `?`.\n**Output**: ConfType object containing matched stanzas with their settings.\n**Atomicity**: Read is a consistent snapshot of a file. Read succeeds or fails completely.\n**Empty body**: Returns all stanzas, equivalent to a plain HTTP GET.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigView"
+          },
+          {
+            "$ref": "#/components/parameters/Count"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/SortDir"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Optional stanza name filters. Omit body to return all stanzas.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfTypeGetRequest"
+              },
+              "example": {
+                "stanzaFilter": [
+                  {
+                    "filter": "general",
+                    "mode": "exact"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration type content with stanzas and settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfTypeGetResponse"
+                },
+                "example": {
+                  "confType": "server",
+                  "stanzas": [
+                    {
+                      "stanza": "general",
+                      "settings": [
+                        {
+                          "setting": "serverName",
+                          "value": "splunk-prod-01"
+                        },
+                        {
+                          "setting": "sessionTimeout",
+                          "value": "1h"
+                        }
+                      ]
+                    }
+                  ],
+                  "paging": {
+                    "total": 1,
+                    "perPage": 1,
+                    "offset": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}/stanzas": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "listStanzas",
+        "summary": "List stanzas",
+        "description": "Returns a list of stanza names that are configured in the conf type.\n**Output**: Array of stanza name strings (not the full stanza content).\n**Use Case**: Discover what stanzas exist before fetching their content.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigView"
+          },
+          {
+            "$ref": "#/components/parameters/Count"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/SortDir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of configured stanza names.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaListResponse"
+                },
+                "example": {
+                  "stanzas": [
+                    "default",
+                    "general",
+                    "sslConfig"
+                  ],
+                  "paging": {
+                    "total": 3,
+                    "perPage": 3,
+                    "offset": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "createStanza",
+        "summary": "Create stanza",
+        "description": "Create a new stanza with settings. The stanza must not already exist\nor the method returns HTTP Error 409 Conflict. Stanza name is in the\nrequest body, avoiding URI length limitations for long stanza names.\nSee **Write Semantics** earlier in this document for local-layer\ntargeting, diff suppression, and empty-value rules.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Stanza name and initial settings to create.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaWriteRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "settings": [
+                  {
+                    "setting": "serverName",
+                    "value": "splunk-prod-01"
+                  },
+                  {
+                    "setting": "sessionTimeout",
+                    "value": "1h"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stanza created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "settings": [
+                    {
+                      "setting": "serverName",
+                      "value": "splunk-prod-01"
+                    },
+                    {
+                      "setting": "sessionTimeout",
+                      "value": "1h"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "replaceStanza",
+        "summary": "Replace stanza",
+        "description": "Replace all settings in an existing stanza with values you provide in the request body.\nThe method removes settings that are not included in the request body. The stanza must\nalready exist or the method returns HTTP Error 404 Not Found. Stanza name is in the\nrequest body, avoiding URI length limitations for long stanza names.\nSee **Write Semantics** earlier in this document for local-layer\ntargeting, diff suppression, and empty-value rules.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Stanza name and the complete set of settings to write. The system removes settings that you do not include.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaWriteRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "settings": [
+                  {
+                    "setting": "serverName",
+                    "value": "splunk-prod-01"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stanza replaced atomically.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "settings": [
+                    {
+                      "setting": "serverName",
+                      "value": "splunk-prod-01"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "updateStanza",
+        "summary": "Update stanza",
+        "description": "Merge settings into an existing stanza. The stanza must already exist\nor the method returns HTTP Error 404 Not Found. Stanza name is in the\nrequest body, avoiding URI length limitations for long stanza names.\nPreserves settings that the request does not include. Returns the complete stanza state from local/ after the update.\nSee **Write Semantics** earlier in this document for local-layer\ntargeting, diff suppression, and empty-value rules.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Stanza name and settings to merge. The system preserves settings that you do not include.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaWriteRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "settings": [
+                  {
+                    "setting": "sessionTimeout",
+                    "value": "1h"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The system updates the stanza atomically. Returns the complete stanza state from local/ after\nthe update, including settings that were not in the request body but already existed.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "settings": [
+                    {
+                      "setting": "serverName",
+                      "value": "splunk-prod-01"
+                    },
+                    {
+                      "setting": "sessionTimeout",
+                      "value": "1h"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}/stanzas:get": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "getStanza",
+        "summary": "Get stanza",
+        "description": "Retrieve a stanza by name in the request body. Returns the stanza\nwith its settings. Supports optional setting name filtering,\npagination, and sorting. Setting name filters are passed in the request\nbody; pagination and sorting are query parameters.\nUse this endpoint since stanza names can be too long for the URI path.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigView"
+          },
+          {
+            "$ref": "#/components/parameters/Count"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/SortDir"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Stanza name and optional setting name filters.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaGetRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "settingsFilter": [
+                  {
+                    "filter": "serverName",
+                    "mode": "exact"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stanza with its settings. When you supply 'settingsFilter', the system returns only matching settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaGetResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "settings": [
+                    {
+                      "setting": "serverName",
+                      "value": "splunk-prod-01"
+                    }
+                  ],
+                  "paging": {
+                    "total": 1,
+                    "perPage": 1,
+                    "offset": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}/stanzas:delete": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "deleteStanza",
+        "summary": "Delete stanza",
+        "description": "Delete an entire stanza and all its settings. Stanza name is\nin the request body, avoiding URI length limitations for long stanza names.\nTo delete individual settings within a stanza, use\n`POST /stanzas/settings:delete` instead.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Name of the stanza to delete.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaDeleteRequest"
+              },
+              "example": {
+                "stanza": "general"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The system deletes the stanza and all its settings atomically. Returns the stanza as it existed before deletion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "settings": [
+                    {
+                      "setting": "serverName",
+                      "value": "splunk-prod-01"
+                    },
+                    {
+                      "setting": "sessionTimeout",
+                      "value": "1h"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}/stanzas/settings:get": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "getSettingValue",
+        "summary": "Get setting",
+        "description": "Retrieve the value for a single setting from a stanza. Both the stanza name\nand setting name are in the request body, since either can be too long\nfor the URI path.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ConfigView"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Stanza and setting name to read.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaScopedSettingGetRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "setting": "serverName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Setting with a name-value pair.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaScopedSettingGetResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "setting": "serverName",
+                  "value": "splunk-prod-01"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}/stanzas/settings": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "createSetting",
+        "summary": "Create setting",
+        "description": "Create a new setting in a stanza. The stanza must exist and the setting\nmust not already exist. Method returns HTTP Error 404 if it does not\nfind the stanza, and HTTP Error 409 if the setting exists. Both the\nstanza name and setting are in the request body, avoiding URI length\nlimitations for long stanza names.\nThe response `value` field reflects the current state of the setting in the `local/` layer after the operation.\nDiff suppression and empty-value suppression both result in an empty string for `value`.\nSee **Write Semantics** earlier in this document for local-layer\ntargeting, diff suppression, and empty-value rules.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Stanza name, setting name, and initial value to create.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaScopedSettingWriteRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "setting": "sessionTimeout",
+                "value": "1h"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Setting created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaScopedSettingWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "setting": "sessionTimeout",
+                  "value": "1h"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "replaceSetting",
+        "summary": "Replace setting",
+        "description": "Replace the value of an existing setting in a stanza. The stanza and setting must\nalready exist. The method returns an HTTP 404 error if either one does not. Both the\nstanza name and setting are in the request body, avoiding URI length\nlimitations for long stanza names.\nThe response `value` field reflects the current state of the setting in the `local/` layer after the operation.\nDiff suppression leaves the existing local value unchanged and returns that value.\nSee **Write Semantics** earlier in this document for local-layer\ntargeting, diff suppression, and empty-value rules.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Stanza name, setting name, and new value to write.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaScopedSettingWriteRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "setting": "sessionTimeout",
+                "value": "2h"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Setting replaced atomically.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaScopedSettingWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "setting": "sessionTimeout",
+                  "value": "2h"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/configs/v1/conftypes/{confType}/stanzas/settings:delete": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ConfType"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Configuration Management"
+        ],
+        "operationId": "deleteSetting",
+        "summary": "Delete setting",
+        "description": "Delete a setting by name from a stanza. Both the stanza and setting\nnames are in the request body, avoiding URI length limitations for\nlong stanza/setting names.\n",
+        "requestBody": {
+          "required": true,
+          "description": "Stanza and setting name to delete.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StanzaScopedSettingDeleteRequest"
+              },
+              "example": {
+                "stanza": "general",
+                "setting": "sessionTimeout"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The system deletes the setting atomically. Returns the setting as it existed before deletion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StanzaScopedSettingWriteResponse"
+                },
+                "example": {
+                  "stanza": "general",
+                  "setting": "sessionTimeout",
+                  "value": "2h"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "ConfType": {
+        "name": "confType",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Configuration file name (for example: inputs, props).\n"
+      },
+      "ConfigView": {
+        "name": "view",
+        "in": "query",
+        "schema": {
+          "$ref": "#/components/schemas/ConfigView"
+        },
+        "description": "Configuration view to return:\n- `app-local`: Returns local overrides only (app/local directory)\n- `app-default`: Returns default configuration only (app/default directory)\n- `app-merged`: Returns app-merged configuration (app-local merged with app-default fallback)\n- `materialized`: Returns materialized configuration with precedence order fallback\n\n**App-merged view behavior:**\n- Reads from app/local first\n- For missing stanzas/settings, falls back to app/default\n\n**Examples:**\n- `?view=app-local` - Only custom settings\n- `?view=app-default` - Only defaults\n- `?view=app-merged` - Merged runtime config\n- `?view=materialized` - Materialized configuration\n"
+      },
+      "Count": {
+        "name": "count",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0,
+          "maximum": 100000,
+          "default": 0
+        },
+        "description": "Maximum number of entities to return per page. `0` or no value uses the\nserver default page size of 30. Maximum allowed value is 100,000. The method\nrejects requests with higher values with HTTP Error 400. Use `offset` to\npage through results.\n"
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0,
+          "default": 0
+        },
+        "description": "Index of the first entity to return. Begins with entity #0. Used with `count` for pagination.\n"
+      },
+      "SortDir": {
+        "name": "sort_dir",
+        "in": "query",
+        "schema": {
+          "$ref": "#/components/schemas/SortDir"
+        },
+        "description": "Sort direction. Sorts by the natural name of the entity at each level\n(conf type name, stanza name, or setting name). Defaults to asc.\n"
+      },
+      "Filter": {
+        "name": "filter",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "Filter pattern for conf type names. Interpretation depends on the `mode` parameter.\nIf you don't supply a filter, the method returns all conf types.\nExamples:\n- `?filter=inputs` - returns \"inputs\" conf type\n"
+      },
+      "FilterMode": {
+        "name": "mode",
+        "in": "query",
+        "schema": {
+          "$ref": "#/components/schemas/FilterMode"
+        },
+        "description": "How to interpret the `filter` parameter:\n- `exact`: Literal string match (default).\n- `regex`: Regular expression match. Matches any substring of the name,\n  not just the full string. Use `^` and `$` anchors for full-string matching.\nExamples:\n- `?filter=inputs&mode=exact` - matches only the conf type named \"inputs\"\n- `?filter=saved&mode=regex` - matches \"savedsearches\" (substring match)\n- `?filter=^saved.*&mode=regex` - matches only names starting with \"saved\"\n- `?filter=^savedsearches$&mode=regex` - matches only \"savedsearches\" exactly\n"
+      }
+    },
+    "schemas": {
+      "SettingValue": {
+        "type": "object",
+        "required": [
+          "setting",
+          "value"
+        ],
+        "properties": {
+          "setting": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Setting name.",
+            "example": "serverName"
+          },
+          "value": {
+            "type": "string",
+            "description": "Setting value.",
+            "example": "splunk-prod-01"
+          }
+        },
+        "description": "A configuration setting consisting of a name-value pair."
+      },
+      "Stanza": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "settings"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "description": "Array of settings within this stanza.",
+            "example": [
+              {
+                "setting": "serverName",
+                "value": "splunk-prod-01"
+              },
+              {
+                "setting": "sessionTimeout",
+                "value": "1h"
+              }
+            ]
+          }
+        },
+        "description": "Core domain object representing a stanza with its settings. Used in read responses\n(`ConfTypeGetResponse.stanzas[]`).\n"
+      },
+      "ConfigView": {
+        "type": "string",
+        "enum": [
+          "app-local",
+          "app-default",
+          "app-merged",
+          "materialized"
+        ],
+        "default": "app-local",
+        "description": "- app-local: Returns local overrides only (app/local directory).\n- app-default: Returns default configuration only (app/default directory).\n- app-merged: Returns app-merged configuration (app-local merged with app-default fallback).\n- materialized: Returns materialized configuration with precedence order fallback.\n"
+      },
+      "SortDir": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ],
+        "default": "asc",
+        "description": "- asc: Ascending alphabetical order.\n- desc: Descending alphabetical order.\n"
+      },
+      "FilterMode": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "regex"
+        ],
+        "default": "exact",
+        "description": "- exact: Literal string match (default).\n- regex: Regular expression match. Matches any substring of the name,\n  not just the full string. Use `^` and `$` anchors for full-string matching.\n"
+      },
+      "NameFilter": {
+        "type": "object",
+        "required": [
+          "filter"
+        ],
+        "properties": {
+          "filter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name or filter expression to match. Must be non-empty;\nan empty string has no valid meaning as a filter pattern and is rejected with HTTP 400.\n"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/FilterMode",
+            "description": "- exact: Literal string match (default).\n- regex: Regular expression match. Matches any substring of the name,\n  not just the full string. Use `^` and `$` anchors for full-string matching.\n"
+          }
+        },
+        "description": "Filters a list of resource names. When you supply multiple filters,\nthe method returns any resource whose name matches at least one filter.\nExamples:\n- `{\"filter\": \"savedsearches\", \"mode\": \"exact\"}` - matches only \"savedsearches\"\n- `{\"filter\": \"saved\", \"mode\": \"regex\"}` - matches \"savedsearches\" (substring match)\n- `{\"filter\": \"^saved.*\", \"mode\": \"regex\"}` - matches names starting with \"saved\"\n- `{\"filter\": \"^savedsearches$\", \"mode\": \"regex\"}` - matches only \"savedsearches\" exactly\n"
+      },
+      "ConfTypeGetRequest": {
+        "type": "object",
+        "properties": {
+          "stanzaFilter": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NameFilter"
+            },
+            "description": "Filter the stanzas to include. Omit to return all stanzas.\nWhen you supply multiple filters, the method returns\na stanza that matches any filter.\n",
+            "example": [
+              {
+                "filter": "general",
+                "mode": "exact"
+              }
+            ]
+          }
+        },
+        "description": "Request body for `POST /conftypes/{confType}:get`. Supports optional\nstanza name filtering. Query parameters control pagination (`count`, `offset`)\nand sorting (`sort_dir`) of stanzas. An empty body means to return all stanzas.\n"
+      },
+      "ConfTypeListResponse": {
+        "type": "object",
+        "required": [
+          "confTypes",
+          "paging"
+        ],
+        "properties": {
+          "confTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of conf type names.",
+            "example": [
+              "inputs",
+              "limits",
+              "server",
+              "transforms"
+            ]
+          },
+          "paging": {
+            "$ref": "#/components/schemas/Paging"
+          }
+        },
+        "description": "List of configuration type names."
+      },
+      "ConfTypeGetResponse": {
+        "type": "object",
+        "required": [
+          "confType",
+          "stanzas",
+          "paging"
+        ],
+        "properties": {
+          "confType": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Configuration type name.",
+            "example": "server"
+          },
+          "stanzas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stanza"
+            },
+            "description": "Array of stanzas within this conf type.",
+            "example": [
+              {
+                "stanza": "general",
+                "settings": [
+                  {
+                    "setting": "serverName",
+                    "value": "splunk-prod-01"
+                  },
+                  {
+                    "setting": "sessionTimeout",
+                    "value": "1h"
+                  }
+                ]
+              }
+            ]
+          },
+          "paging": {
+            "$ref": "#/components/schemas/Paging"
+          }
+        },
+        "description": "A configuration file (conf type) with its stanzas and settings."
+      },
+      "StanzaGetRequest": {
+        "type": "object",
+        "required": [
+          "stanza"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "settingsFilter": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NameFilter"
+            },
+            "description": "Filter which settings to return. Omit to return all settings.\nWhen you supply multiple filters, the method returns any setting that matches at least one filter.\n",
+            "example": [
+              {
+                "filter": "serverName",
+                "mode": "exact"
+              },
+              {
+                "filter": "sessionTimeout",
+                "mode": "exact"
+              }
+            ]
+          }
+        },
+        "description": "Request body for `POST /stanzas:get`. Identifies a stanza to read by\nexact name, with optional setting name filtering. Query parameters control\npagination (`count`, `offset`) and sorting (`sort_dir`) of settings.\n"
+      },
+      "StanzaWriteRequest": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "settings"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "description": "Array of settings to write.",
+            "example": [
+              {
+                "setting": "serverName",
+                "value": "splunk-prod-01"
+              },
+              {
+                "setting": "sessionTimeout",
+                "value": "1h"
+              }
+            ]
+          }
+        },
+        "description": "Request body for stanza write operations\n(`POST /stanzas`, `PUT /stanzas`, `PATCH /stanzas`).\n"
+      },
+      "StanzaDeleteRequest": {
+        "type": "object",
+        "required": [
+          "stanza"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          }
+        },
+        "description": "Request body for `POST /stanzas:delete`. Identifies the stanza to delete\nby name. Stanza name is in the body to avoid URI length limitations.\n"
+      },
+      "StanzaListResponse": {
+        "type": "object",
+        "required": [
+          "stanzas",
+          "paging"
+        ],
+        "properties": {
+          "stanzas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of stanza names.",
+            "example": [
+              "default",
+              "general",
+              "sslConfig"
+            ]
+          },
+          "paging": {
+            "$ref": "#/components/schemas/Paging"
+          }
+        },
+        "description": "List of stanza names in a conf type."
+      },
+      "StanzaGetResponse": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "settings",
+          "paging"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "description": "Array of settings within this stanza.",
+            "example": [
+              {
+                "setting": "serverName",
+                "value": "splunk-prod-01"
+              },
+              {
+                "setting": "sessionTimeout",
+                "value": "1h"
+              }
+            ]
+          },
+          "paging": {
+            "$ref": "#/components/schemas/Paging"
+          }
+        },
+        "description": "Stanza with its settings and pagination metadata."
+      },
+      "StanzaWriteResponse": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "settings"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingValue"
+            },
+            "description": "Array of settings within this stanza.",
+            "example": [
+              {
+                "setting": "serverName",
+                "value": "splunk-prod-01"
+              },
+              {
+                "setting": "sessionTimeout",
+                "value": "1h"
+              }
+            ]
+          }
+        },
+        "description": "Response for stanza write operations (create, replace, update, delete).\nReturns the full stanza state after the operation completes. For updates\nusing the PATCH HTTP method, returns complete merged stanza including\nsettings that were not in the request.\n"
+      },
+      "StanzaScopedSettingGetRequest": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "setting"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "setting": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Setting name.",
+            "example": "serverName"
+          }
+        },
+        "description": "Request body for `POST /stanzas/settings:get`. Identifies a single setting\nby stanza and setting name. Both are in the body to avoid URI length limitations.\n"
+      },
+      "StanzaScopedSettingWriteRequest": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "setting",
+          "value"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "setting": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Setting name.",
+            "example": "sessionTimeout"
+          },
+          "value": {
+            "type": "string",
+            "description": "Setting value.",
+            "example": "1h"
+          }
+        },
+        "description": "Request body for setting write operations\n(`POST /stanzas/settings`, `PUT /stanzas/settings`).\nBoth stanza and setting names are in the body to avoid URI length limitations.\n"
+      },
+      "StanzaScopedSettingDeleteRequest": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "setting"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "setting": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Setting name.",
+            "example": "sessionTimeout"
+          }
+        },
+        "description": "Request body for `POST /stanzas/settings:delete`. Identifies the setting to\ndelete by stanza and setting name. Both are in the body to avoid URI length limitations.\n"
+      },
+      "StanzaScopedSettingGetResponse": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "setting",
+          "value"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "setting": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Setting name.",
+            "example": "serverName"
+          },
+          "value": {
+            "type": "string",
+            "description": "Setting value.",
+            "example": "splunk-prod-01"
+          }
+        },
+        "description": "Response for a single setting read, including the parent stanza context."
+      },
+      "StanzaScopedSettingWriteResponse": {
+        "type": "object",
+        "required": [
+          "stanza",
+          "setting",
+          "value"
+        ],
+        "properties": {
+          "stanza": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stanza name (without brackets).",
+            "example": "general"
+          },
+          "setting": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Setting name.",
+            "example": "sessionTimeout"
+          },
+          "value": {
+            "type": "string",
+            "description": "Setting value.",
+            "example": "1h"
+          }
+        },
+        "description": "Response for setting write operations (create, replace, delete).\nReturns the setting as written.\n"
+      },
+      "Paging": {
+        "type": "object",
+        "required": [
+          "total",
+          "perPage",
+          "offset"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0,
+            "description": "Total number of results before slicing. Use this to compute remaining pages.",
+            "example": 150
+          },
+          "perPage": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0,
+            "description": "Number of results returned in this response per page.",
+            "example": 30
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0,
+            "description": "Zero-based offset that was applied.",
+            "example": 0
+          }
+        },
+        "description": "Paging metadata included in all paginated responses."
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "description": "The error response body that the system returns for all HTTP 4xx and 5xx response codes.",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Error message.",
+            "example": "Stanza not found"
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad request - Invalid input or validation error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "message": "Invalid request"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "message": "Not found"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Action Forbidden.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "message": "Write access denied"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflict - Resource already exists.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "message": "Resource already exists"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Internal server error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "message": "Internal server error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+name: Deploy Config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'conf/**.conf'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upsert savedsearches stanza via Config Management API
+        env:
+          STACK_NAME: ${{ secrets.STACK_NAME }}
+          SPLUNK_USER: ${{ secrets.SPLUNK_USER }}
+          SPLUNK_PASSWORD: ${{ secrets.SPLUNK_PASSWORD }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import re
+          import urllib.request
+          import urllib.error
+          import base64
+
+          conf_path = "conf/savedsearches.conf"
+          with open(conf_path) as f:
+              content = f.read()
+
+          match = re.search(r'^\[(.+)\]', content, re.MULTILINE)
+          stanza = match.group(1)
+          settings = [
+              {"setting": key, "value": value}
+              for key, value in re.findall(r'^(\S+)\s*=\s*(.*)$', content, re.MULTILINE)
+          ]
+
+          stack_name = os.environ["STACK_NAME"]
+          user = os.environ["SPLUNK_USER"]
+          password = os.environ["SPLUNK_PASSWORD"]
+
+          url = f"https://{stack_name}:8089/configs/v1/conftypes/savedsearches/stanzas"
+          body = json.dumps({"stanza": stanza, "settings": settings}).encode()
+          creds = base64.b64encode(f"{user}:{password}".encode()).decode()
+          headers = {
+              "Authorization": f"Basic {creds}",
+              "Content-Type": "application/json",
+          }
+
+          def send(method):
+              req = urllib.request.Request(url, data=body, method=method, headers=headers)
+              with urllib.request.urlopen(req) as resp:
+                  print(resp.status, resp.read().decode())
+
+          # Create if the stanza is new; fall back to a full replace (PUT) if it
+          # already exists, so deleted settings are dropped rather than left stale.
+          try:
+              send("POST")
+          except urllib.error.HTTPError as e:
+              if e.code == 409:
+                  send("PUT")
+              else:
+                  print(e.code, e.read().decode())
+                  raise
+          EOF
