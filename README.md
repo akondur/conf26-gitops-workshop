@@ -6,6 +6,8 @@ Template repository for **PLA1714 — GitOps Pipeline for Splunk Configuration**
 
 This repo includes sample workflows, config files, and MCP tooling for the workshop exercises. Use `SPLUNK_ARCHITECTURE.md` for system architecture diagrams.
 
+**For organizers:** See `ORGANIZER_SETUP.md` for pre-workshop infrastructure setup steps (Audit Trail v2, config API auditing, MCP tool registration).
+
 ## Exercises
 
 1. **Exercise 1** — GitHub Actions health check to verify connectivity to Splunk Cloud
