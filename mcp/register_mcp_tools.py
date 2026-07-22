@@ -22,8 +22,13 @@ import urllib.request
 
 STACK_NAME = os.environ["STACK_NAME"]
 SPLUNK_TOKEN = os.environ["SPLUNK_TOKEN"]
-EXTERNAL_APP_ID = os.environ.get("MCP_EXTERNAL_APP_ID", "conf26_gitops")
+EXTERNAL_APP_ID = os.environ.get("MCP_EXTERNAL_APP_ID", "search")
 
+APP_ARG = {
+    "name": "app", "type": "string",
+    "description": "Splunk app namespace.",
+    "default": "search",
+}
 CONF_TYPE_ARG = {
     "name": "confType", "type": "string",
     "description": "Configuration file name, e.g. 'props' or 'savedsearches'.",
@@ -37,17 +42,27 @@ VALUE_ARG = {"name": "value", "type": "string", "description": "Value to write f
 
 
 def api_tool(name, title, description, method, endpoint, body_template=None, arguments=()):
+    properties = {}
+    required = []
+
+    for arg in arguments:
+        prop = {"type": arg["type"], "description": arg["description"]}
+
+        if "default" in arg:
+            prop["default"] = arg["default"]
+        else:
+            required.append(arg["name"])
+
+        properties[arg["name"]] = prop
+
     return {
         "name": f"{EXTERNAL_APP_ID}_{name}",
         "title": title,
         "description": description,
         "inputSchema": {
             "type": "object",
-            "properties": {
-                arg["name"]: {"type": arg["type"], "description": arg["description"]}
-                for arg in arguments
-            },
-            "required": [arg["name"] for arg in arguments],
+            "properties": properties,
+            "required": required,
         },
         "_meta": {
             "execution": {
@@ -64,62 +79,63 @@ TOOLS = [
     api_tool(
         "list_conf_types", "List conf types",
         "List the configuration file types (conf types) known to this Splunk instance.",
-        "GET", "/services/configs/v1/conftypes",
+        "GET", "/servicesNS/nobody/$app$/configs/v1/conftypes",
+        arguments=[APP_ARG],
     ),
     api_tool(
         "get_conf_type", "Get conf type",
         "Get details about a single conf type, e.g. 'props' or 'savedsearches'.",
-        "POST", "/services/configs/v1/conftypes/$confType$:get",
-        arguments=[CONF_TYPE_ARG],
+        "POST", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$:get",
+        arguments=[APP_ARG, CONF_TYPE_ARG],
     ),
     api_tool(
         "list_stanzas", "List stanzas",
         "List the stanzas defined in a given conf type.",
-        "GET", "/services/configs/v1/conftypes/$confType$/stanzas",
-        arguments=[CONF_TYPE_ARG],
+        "GET", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas",
+        arguments=[APP_ARG, CONF_TYPE_ARG],
     ),
     api_tool(
         "get_stanza", "Get stanza",
         "Read a single stanza's settings from a conf type.",
-        "POST", "/services/configs/v1/conftypes/$confType$/stanzas:get",
+        "POST", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas:get",
         body_template={"stanza": "$stanza$"},
-        arguments=[CONF_TYPE_ARG, STANZA_ARG],
+        arguments=[APP_ARG, CONF_TYPE_ARG, STANZA_ARG],
     ),
     api_tool(
         "delete_stanza", "Delete stanza",
         "Delete an entire stanza from a conf type.",
-        "POST", "/services/configs/v1/conftypes/$confType$/stanzas:delete",
+        "POST", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas:delete",
         body_template={"stanza": "$stanza$"},
-        arguments=[CONF_TYPE_ARG, STANZA_ARG],
+        arguments=[APP_ARG, CONF_TYPE_ARG, STANZA_ARG],
     ),
     api_tool(
         "get_setting_value", "Get setting value",
         "Read a single setting's value from a stanza.",
-        "POST", "/services/configs/v1/conftypes/$confType$/stanzas/settings:get",
+        "POST", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas/settings:get",
         body_template={"stanza": "$stanza$", "setting": "$setting$"},
-        arguments=[CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG],
+        arguments=[APP_ARG, CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG],
     ),
     api_tool(
         "create_setting", "Create setting",
         "Create a new setting in a stanza (creates the stanza if it doesn't exist yet). "
         "Fails if the setting already exists.",
-        "POST", "/services/configs/v1/conftypes/$confType$/stanzas/settings",
+        "POST", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas/settings",
         body_template={"stanza": "$stanza$", "setting": "$setting$", "value": "$value$"},
-        arguments=[CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG, VALUE_ARG],
+        arguments=[APP_ARG, CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG, VALUE_ARG],
     ),
     api_tool(
         "replace_setting", "Replace setting",
         "Create or overwrite a setting's value in a stanza.",
-        "PUT", "/services/configs/v1/conftypes/$confType$/stanzas/settings",
+        "PUT", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas/settings",
         body_template={"stanza": "$stanza$", "setting": "$setting$", "value": "$value$"},
-        arguments=[CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG, VALUE_ARG],
+        arguments=[APP_ARG, CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG, VALUE_ARG],
     ),
     api_tool(
         "delete_setting", "Delete setting",
         "Delete a single setting from a stanza.",
-        "POST", "/services/configs/v1/conftypes/$confType$/stanzas/settings:delete",
+        "POST", "/servicesNS/nobody/$app$/configs/v1/conftypes/$confType$/stanzas/settings:delete",
         body_template={"stanza": "$stanza$", "setting": "$setting$"},
-        arguments=[CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG],
+        arguments=[APP_ARG, CONF_TYPE_ARG, STANZA_ARG, SETTING_ARG],
     ),
 ]
 

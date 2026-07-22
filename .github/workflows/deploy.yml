@@ -41,7 +41,7 @@ jobs:
           user = os.environ["SPLUNK_USER"]
           password = os.environ["SPLUNK_PASSWORD"]
 
-          url = f"https://{stack_name}:8089/configs/v1/conftypes/savedsearches/stanzas"
+          url = f"https://{stack_name}:8089/servicesNS/nobody/search/configs/v1/conftypes/savedsearches/stanzas"
           body = json.dumps({"stanza": stanza, "settings": settings}).encode()
           creds = base64.b64encode(f"{user}:{password}".encode()).decode()
           headers = {
