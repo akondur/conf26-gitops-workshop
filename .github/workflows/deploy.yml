@@ -22,9 +22,14 @@ jobs:
           import json
           import os
           import re
+          import ssl
           import urllib.request
           import urllib.error
           import base64
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
 
           conf_path = "conf/savedsearches.conf"
           with open(conf_path) as f:
@@ -51,7 +56,7 @@ jobs:
 
           def send(method):
               req = urllib.request.Request(url, data=body, method=method, headers=headers)
-              with urllib.request.urlopen(req) as resp:
+              with urllib.request.urlopen(req, context=ctx) as resp:
                   print(resp.status, resp.read().decode())
 
           # Create if the stanza is new; fall back to a full replace (PUT) if it

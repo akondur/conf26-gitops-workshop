@@ -31,7 +31,7 @@ jobs:
             confname=$(basename "$file" .conf)
             echo "Validating $file as conf type '$confname'..."
 
-            http_code=$(curl -s -o response.json -w '%{http_code}' \
+            http_code=$(curl -sk -o response.json -w '%{http_code}' \
               -u "${SPLUNK_USER}:${SPLUNK_PASSWORD}" \
               -X POST \
               "https://${STACK_NAME}:8089/services/properties/${confname}?validate=true" \

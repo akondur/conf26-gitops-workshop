@@ -15,10 +15,11 @@ jobs:
           SPLUNK_USER: ${{ secrets.SPLUNK_USER }}
           SPLUNK_PASSWORD: ${{ secrets.SPLUNK_PASSWORD }}
         run: |
-          curl -sf \
+          curl -sfk \
             -u "${SPLUNK_USER}:${SPLUNK_PASSWORD}" \
             "https://${STACK_NAME}:8089/services/server/info?output_mode=json" \
-            | tee server_info.json
+            -o server_info.json
+          cat server_info.json
 
       - name: Print Splunk version
         run: |
