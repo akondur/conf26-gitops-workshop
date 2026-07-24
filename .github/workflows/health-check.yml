@@ -12,10 +12,11 @@ jobs:
       - name: Call Splunk Cloud server/info endpoint
         env:
           STACK_NAME: ${{ secrets.STACK_NAME }}
-          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+          SPLUNK_USER: ${{ secrets.SPLUNK_USER }}
+          SPLUNK_PASSWORD: ${{ secrets.SPLUNK_PASSWORD }}
         run: |
           curl -sf \
-            -H "Authorization: Bearer ${STACK_TOKEN}" \
+            -u "${SPLUNK_USER}:${SPLUNK_PASSWORD}" \
             "https://${STACK_NAME}:8089/services/server/info?output_mode=json" \
             | tee server_info.json
 
