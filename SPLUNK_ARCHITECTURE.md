@@ -114,18 +114,18 @@
 │  Splunk's Native MCP Server             │
 │  https://<stack>:8089/services/mcp/v1/sse
 │                                         │
-│  Registered Tools (from OpenAPI spec):  │
-│  • conf26_gitops_list_stanzas           │
-│  • conf26_gitops_get_stanza             │
-│  • conf26_gitops_create_setting         │
-│  • conf26_gitops_replace_setting        │
-│  • conf26_gitops_delete_setting         │
+│  Registered Tools:                      │
+│  • search_list_stanzas                  │
+│  • search_get_stanza                    │
+│  • search_create_setting                │
+│  • search_replace_setting               │
+│  • search_delete_setting                │
 │  • ... (9 total)                        │
 │                                         │
-│  Registration via:                      │
-│  mcp/register_mcp_tools.py              │
-│  ↓ reads spec/configmgmt_openapi.json   │
-│  ↓ POSTs to /services/mcp_tools         │
+│  Registered by the organizer against    │
+│  POST /services/mcp_tools before the    │
+│  workshop starts (not part of this      │
+│  repo — one-time per CO2 stack).        │
 │                                         │
 └────────────┬────────────────────────────┘
              │
@@ -172,13 +172,13 @@
 
 ## MCP Tool Generation Pattern
 
-This workshop uses Splunk's MCP Server with OpenAPI spec auto-generation:
+This workshop uses Splunk's MCP Server with tool definitions mirroring the
+Configuration Management API (`spec/configmgmt_openapi.json`):
 
 ```
-OpenAPI Spec
-(spec/configmgmt_openapi.json)
+Configuration Management API
+(spec/configmgmt_openapi.json defines 12 operations)
         │
-        │ Defines 12 operations:
         │ • list_stanzas
         │ • get_stanza
         │ • create_stanza (array args - NOT registered)
@@ -190,10 +190,8 @@ OpenAPI Spec
         │ • ... (3 more scalar-arg operations)
         │
         ▼
-mcp/register_mcp_tools.py
-        │
-        │ Reads spec → Creates tool definitions
-        │ (filters out array-arg operations)
+Organizer registers 9 tool definitions
+(mirroring the scalar-arg operations above)
         │
         ▼
 POST /services/mcp_tools
@@ -206,10 +204,10 @@ POST /services/mcp_tools
 Continue UI
         │
         └─ Tools available to Claude
-           conf26_gitops_list_stanzas
-           conf26_gitops_create_setting
-           conf26_gitops_replace_setting
-           conf26_gitops_delete_setting
+           search_list_stanzas
+           search_create_setting
+           search_replace_setting
+           search_delete_setting
            ... etc.
 ```
 

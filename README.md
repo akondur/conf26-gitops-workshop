@@ -6,7 +6,7 @@ Template repository for **PLA1714 — GitOps Pipeline for Splunk Configuration**
 
 This repo includes sample workflows, config files, and MCP tooling for the workshop exercises. Use `SPLUNK_ARCHITECTURE.md` for system architecture diagrams.
 
-**For organizers:** See `ORGANIZER_SETUP.md` for pre-workshop infrastructure setup steps (Audit Trail v2, config API auditing, MCP tool registration).
+**For organizers:** Pre-workshop infrastructure setup (Audit Trail v2, config API auditing, MCP Server app install, MCP tool registration) is handled separately per CO2 stack and is not part of this repo.
 
 ## Exercises
 
@@ -24,6 +24,5 @@ See the Lab Guide for complete walkthroughs with screenshots and exact click pat
 | `.github/workflows/` | Three GitHub Actions workflows (health-check, validate, deploy) for Exercises 1–2 |
 | `conf/savedsearches.conf` | Sample configuration file |
 | `spec/configmgmt_openapi.json` | Configuration Management API OpenAPI specification |
-| `mcp/register_mcp_tools.py` | Script to register the API as MCP tools on Splunk's native MCP Server (organizer use) |
 | `mcp/splunk-conf.continue.yaml` | Continue MCP client config template for Exercise 4 (attendee use) |
 | `SPLUNK_ARCHITECTURE.md` | System architecture diagrams showing data flows for all four exercises |
