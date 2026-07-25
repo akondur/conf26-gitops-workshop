@@ -10,7 +10,8 @@
       "url": "https://{splunk_server}:8089",
       "variables": {
         "splunk_server": {
-          "default": "localhost"
+          "default": "localhost",
+          "description": "Splunk server hostname or IP address"
         }
       }
     }
